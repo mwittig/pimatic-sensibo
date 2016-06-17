@@ -6,6 +6,7 @@
     "url": "https://github.com/mwittig/pimatic-sensibo"
   },
   "main": "sensibo",
+  "icon": "assets/images/logo.svg",
   "files": [
     "sensibo.coffee",
     "README.md",
@@ -30,7 +31,8 @@
   "license": "AGPL-3.0",
   "configSchema": "sensibo-config-schema.coffee",
   "dependencies": {
-    "pimatic-plugin-commons": "^0.8.8"
+    "pimatic-plugin-commons": "^0.8.8",
+    "restler-promise": "git+https://github.com/mwittig/restler-promise.git"
   },
   "peerDependencies": {
     "pimatic": ">=0.9.0 <1.0.0"

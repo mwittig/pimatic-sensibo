@@ -7,6 +7,6 @@ module.exports = {
     properties:
       podUid:
         description: "The unique id of the Pod"
-        type: "number"
+        type: "string"
   }
 }
