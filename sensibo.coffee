@@ -9,9 +9,12 @@ module.exports = (env) ->
   rest = require('restler-promise')(Promise)
   url = require 'url'
   deviceConfigTemplates =
-    "SensiboDevice":
+    "SensiboControl":
       name: "Sensibo"
-      class: "SensiboDevice"
+      class: "SensiboControl"
+    "SensiboSensor":
+      name: "Sensibo"
+      class: "SensiboSensor"
 
   # ###SensiboPlugin class
   class SensiboPlugin extends env.plugins.Plugin
@@ -36,20 +39,26 @@ module.exports = (env) ->
         timeout: 1000 * @base.normalize @config.timeout ? @config.__proto__.timeout, 5, 86400
       }
 
-      @framework.deviceManager.registerDeviceClass("SensiboDevice", {
-        configDef: deviceConfigDef.SensiboDevice,
+      @framework.deviceManager.registerDeviceClass("SensiboSensor", {
+        configDef: deviceConfigDef.SensiboSensor,
         createCallback: (config, lastState) =>
-          return new SensiboDevice config, @, lastState
+          return new SensiboSensor config, @, lastState
+      })
+      @framework.deviceManager.registerDeviceClass("SensiboControl", {
+        configDef: deviceConfigDef.SensiboControl,
+        createCallback: (config, lastState) =>
+          return new SensiboControl config, @, lastState
       })
 
       @framework.deviceManager.on('discover', (eventData) =>
         @framework.deviceManager.discoverMessage 'pimatic-sensibo', 'Searching for devices'
 
         @getPods().then( (podIds) =>
+            id=null
             for podUid in podIds
               for own templateName of deviceConfigTemplates
                 configTemplate = deviceConfigTemplates[templateName]
-                id = @generateDeviceId "#{configTemplate.name.toLowerCase().replace(/\s/g, '-')}"
+                id = @base.generateDeviceId @framework, "sensibo", id
                 if id?
                   config = _.cloneDeep
                     class: configTemplate.class
@@ -63,13 +72,6 @@ module.exports = (env) ->
         ).catch (errorMessage) =>
           @framework.deviceManager.discoverMessage 'pimatic-sensibo', errorMessage
       )
-
-    generateDeviceId: (prefix) ->
-      for x in [1...1000]
-        result = "#{prefix}-#{x}"
-        matched = @framework.deviceManager.devicesConfig.some (element, iterator) ->
-          element.id is result
-        return result if not matched
 
     getPods: () ->
       urlObject = url.parse @baseUrl, false, true
@@ -89,7 +91,58 @@ module.exports = (env) ->
     addToUrlPath: (baseUrlString, path) ->
       return baseUrlString.replace(/\/$/,"") + '/' + path.replace(/^\//,"")
 
-  class SensiboDevice extends env.devices.PowerSwitch
+  class SensiboSensor extends env.devices.TemperatureSensor
+    attributes:
+      temperature:
+        description: "Temperature"
+        type: types.number
+        unit: '°C'
+        acronym: 'T'
+      humidity:
+        description: "Relative humidity"
+        type: types.number
+        unit: '%'
+        acronym: 'RH'
+
+    constructor: (@config, @plugin, @service) ->
+      @debug = @plugin.config.debug ? false
+      @base = commons.base @, @config.class unless @base?
+
+      @base.debug "Device Initialization"
+      @id = @config.id
+      @name = @config.name
+      intervalSeconds = (@config.interval or (@plugin.config.interval ? @plugin.config.__proto__.interval))
+      @interval = 1000 * @base.normalize intervalSeconds, 10, 86400
+      @_temperature = lastState?.temperature?.value or null
+      @_humidity = lastState?.humidity?.value or null
+      super()
+      @_requestUpdate()
+
+    destroy: () ->
+      @base.cancelUpdate()
+      super()
+
+    _setHumidity: (value) ->
+      @_humidity = value
+      @emit 'humidity', value
+
+    _requestUpdate: ->
+      urlObject = url.parse @plugin.baseUrl, false, true
+      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@plugin.apiKey}/measurements"
+
+      rest.get(url.format(urlObject), @options).then((result) =>
+        @base.info "response:", result.data
+        json = JSON.parse result.data
+        @_setHumidity +json[0].humidity
+        @_setTemperature +json[0].temperature
+      ).catch((error) =>
+        @base.error "Unable to get status values of device: " + error.toString()
+      ).finally () =>
+        @base.scheduleUpdate @_requestUpdate, @interval
+
+    getHumidity: -> Promise.resolve @_humidity
+
+  class SensiboControl extends env.devices.PowerSwitch
     attributes:
       state:
         description: "Current State"
@@ -112,10 +165,23 @@ module.exports = (env) ->
       @name = @config.name
       @_fanLevel = lastState?.fanLevel?.value or 'low'
       @_mode = lastState?.mode?.value or 'fan'
+      @_requestUpdate()
       super()
 
     destroy: () ->
+      @base.cancelUpdate()
       super()
+
+    _requestUpdate: ->
+      urlObject = url.parse @plugin.baseUrl, false, true
+      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@plugin.apiKey}/acStates"
+
+      rest.get(url.format(urlObject), @options).then((result) =>
+        @base.info "response:", result.data
+      ).catch((error) =>
+        @base.error "Unable to get status values of device: " + error.toString()
+      ).finally () =>
+        @base.scheduleUpdate @_requestUpdate, @interval
 
     getFanLevel: -> Promise.resolve @_fanLevel
     getMode: -> Promise.resolve @_mode
