@@ -111,6 +111,7 @@ module.exports = (env) ->
       @base.debug "Device Initialization"
       @id = @config.id
       @name = @config.name
+      @serviceUrl = @_createServiceUrl()
       intervalSeconds = (@config.interval or (@plugin.config.interval ? @plugin.config.__proto__.interval))
       @interval = 1000 * @base.normalize intervalSeconds, 10, 86400
       @_temperature = lastState?.temperature?.value or null
@@ -126,17 +127,21 @@ module.exports = (env) ->
       @_humidity = value
       @emit 'humidity', value
 
-    _requestUpdate: ->
+    _createServiceUrl: ->
       urlObject = url.parse @plugin.baseUrl, false, true
-      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@plugin.apiKey}/measurements"
+      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/measurements"
+      urlObject.query =
+        apiKey: "#{@plugin.apiKey}"
+      return url.format urlObject
 
-      rest.get(url.format(urlObject), @options).then((result) =>
+    _requestUpdate: ->
+      rest.get(@serviceUrl, @options).then((result) =>
         @base.info "response:", result.data
         json = JSON.parse result.data
         @_setHumidity +json[0].humidity
         @_setTemperature +json[0].temperature
-      ).catch((error) =>
-        @base.error "Unable to get status values of device: " + error.toString()
+      ).catch((errorResult) =>
+        @base.error "Unable to get status values of device: " + errorResult.error.toString()
       ).finally () =>
         @base.scheduleUpdate @_requestUpdate, @interval
 
@@ -163,6 +168,7 @@ module.exports = (env) ->
       @base.debug "Device Initialization"
       @id = @config.id
       @name = @config.name
+      @serviceUrl = @_createServiceUrl()
       @_fanLevel = lastState?.fanLevel?.value or 'low'
       @_mode = lastState?.mode?.value or 'fan'
       @_requestUpdate()
@@ -172,14 +178,18 @@ module.exports = (env) ->
       @base.cancelUpdate()
       super()
 
-    _requestUpdate: ->
+    _createServiceUrl: () ->
       urlObject = url.parse @plugin.baseUrl, false, true
-      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@plugin.apiKey}/acStates"
+      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/acStates"
+      urlObject.query =
+        apiKey: "#{@plugin.apiKey}"
+      return url.format urlObject
 
-      rest.get(url.format(urlObject), @options).then((result) =>
+    _requestUpdate: ->
+      rest.get(@serviceUrl, @options).then((result) =>
         @base.info "response:", result.data
-      ).catch((error) =>
-        @base.error "Unable to get status values of device: " + error.toString()
+      ).catch((errorResult) =>
+        @base.error "Unable to get status values of device: " + errorResult.error.toString()
       ).finally () =>
         @base.scheduleUpdate @_requestUpdate, @interval
 
