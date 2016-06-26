@@ -86,7 +86,7 @@ module.exports = (env) ->
           podIds.push pod.id || pod.name
         return Promise.resolve podIds
       ).catch (errorResult) =>
-        @base.rejectWithErrorString Promise.reject,  errorResult.error, "Unable to query pods"
+        @base.rejectWithErrorString Promise.reject,  errorResult.error ? errorResult, "Unable to query pods"
 
     addToUrlPath: (baseUrlString, path) ->
       return baseUrlString.replace(/\/$/,"") + '/' + path.replace(/^\//,"")
@@ -112,6 +112,8 @@ module.exports = (env) ->
       @id = @config.id
       @name = @config.name
       @serviceUrl = @_createServiceUrl()
+      @base.info @serviceUrl.replace(/apiKey=[^&]+/i, "apiKey=XXX");
+      @options = @plugin.options
       intervalSeconds = (@config.interval or (@plugin.config.interval ? @plugin.config.__proto__.interval))
       @interval = 1000 * @base.normalize intervalSeconds, 10, 86400
       @_temperature = lastState?.temperature?.value or null
@@ -132,6 +134,7 @@ module.exports = (env) ->
       urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/measurements"
       urlObject.query =
         apiKey: "#{@plugin.apiKey}"
+        fields: "temperature,humidity"
       return url.format urlObject
 
     _requestUpdate: ->
@@ -141,7 +144,7 @@ module.exports = (env) ->
         @_setHumidity +json[0].humidity
         @_setTemperature +json[0].temperature
       ).catch((errorResult) =>
-        @base.error "Unable to get status values of device: " + errorResult.error.toString()
+        @base.error "Unable to get status values of device: ", errorResult.error ? errorResult
       ).finally () =>
         @base.scheduleUpdate @_requestUpdate, @interval
 
@@ -169,10 +172,12 @@ module.exports = (env) ->
       @id = @config.id
       @name = @config.name
       @serviceUrl = @_createServiceUrl()
+      @base.info @serviceUrl.replace(/apiKey=[^&]+/i, "apiKey=XXX");
+      @options = @plugin.options
       @_fanLevel = lastState?.fanLevel?.value or 'low'
       @_mode = lastState?.mode?.value or 'fan'
-      @_requestUpdate()
       super()
+      @_requestUpdate()
 
     destroy: () ->
       @base.cancelUpdate()
@@ -183,13 +188,15 @@ module.exports = (env) ->
       urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/acStates"
       urlObject.query =
         apiKey: "#{@plugin.apiKey}"
+        limit:  1
+        fields: "status,reason,acState"
       return url.format urlObject
 
     _requestUpdate: ->
       rest.get(@serviceUrl, @options).then((result) =>
         @base.info "response:", result.data
       ).catch((errorResult) =>
-        @base.error "Unable to get status values of device: " + errorResult.error.toString()
+        @base.error "Unable to get status values of device: " + errorResult.error ? errorResult
       ).finally () =>
         @base.scheduleUpdate @_requestUpdate, @interval
 
