@@ -78,13 +78,16 @@ module.exports = (env) ->
       urlObject.pathname = @addToUrlPath urlObject.pathname, "users/me/pods"
       urlObject.query =
         apiKey: "#{@apiKey}"
+      @base.info url.format(urlObject).replace(/apiKey=[^&]+/i, "apiKey=XXX");
 
       rest.get(url.format(urlObject), @options).then((result) =>
-        @base.debug "response:", result.data
-        podIds = []
-        for pod in result.data
-          podIds.push pod.id || pod.name
-        return Promise.resolve podIds
+        @base.info "response:", result.data
+        data = result.data
+        if data.status is 'success' and _.isArray data.result
+          podIds = []
+          for pod in data.result
+            podIds.push pod.id || pod.name
+          return Promise.resolve podIds
       ).catch (errorResult) =>
         @base.rejectWithErrorString Promise.reject,  errorResult.error ? errorResult, "Unable to query pods"
 
@@ -140,9 +143,10 @@ module.exports = (env) ->
     _requestUpdate: ->
       rest.get(@serviceUrl, @options).then((result) =>
         @base.info "response:", result.data
-        json = JSON.parse result.data
-        @_setHumidity +json[0].humidity
-        @_setTemperature +json[0].temperature
+        data = result.data
+        if data.status is 'success' and _.isArray data.result
+          @_setHumidity +data.result[0].humidity
+          @_setTemperature +data.result[0].temperature
       ).catch((errorResult) =>
         @base.error "Unable to get status values of device: ", errorResult.error ? errorResult
       ).finally () =>
@@ -156,12 +160,19 @@ module.exports = (env) ->
         description: "Current State"
         type: types.boolean
         labels: ['on', 'off']
+      targetTemperature:
+        description: "Target Temperature"
+        type: types.number
+        unit: '°C'
+        acronym: 'Tt'
       fanLevel:
         description: "The current fan level"
         type: types.string
+        acronym: "fan"
       mode:
         description: "The current mode of operation"
         type: types.string
+        acronym: "mode"
 
     # Initialize device by reading entity definition from middleware
     constructor: (@config, @plugin, @service) ->
@@ -176,6 +187,7 @@ module.exports = (env) ->
       @options = @plugin.options
       @_fanLevel = lastState?.fanLevel?.value or 'low'
       @_mode = lastState?.mode?.value or 'fan'
+      @_targetTemperature = lastState?.targetTemperature?.value or 20.0
       super()
       @_requestUpdate()
 
@@ -195,6 +207,14 @@ module.exports = (env) ->
     _requestUpdate: ->
       rest.get(@serviceUrl, @options).then((result) =>
         @base.info "response:", result.data
+        data = result.data
+        if data.status is 'success' and _.isArray data.result
+          @base.info "data:", data.result
+          acState = data.result[0].acState
+          @base.setAttribute "fanLevel", acState.fanLevel
+          @base.setAttribute "mode", acState.mode
+          @base.setAttribute "targetTemperature", acState.targetTemperature
+          @base._setState acState.on
       ).catch((errorResult) =>
         @base.error "Unable to get status values of device: " + errorResult.error ? errorResult
       ).finally () =>
@@ -202,7 +222,9 @@ module.exports = (env) ->
 
     getFanLevel: -> Promise.resolve @_fanLevel
     getMode: -> Promise.resolve @_mode
-
+    getTargetTemperature: -> Promise.resolve @_targetTemperature
+    changeStateTo: (newState) ->
+      @base.info "not yet implemented"
 
   # ###Finally
   # Create a instance of my plugin
