@@ -12,6 +12,9 @@ module.exports = (env) ->
     "SensiboControl":
       name: "Sensibo"
       class: "SensiboControl"
+    "SensiboFanControl":
+      name: "Sensibo"
+      class: "SensiboFanControl"
     "SensiboSensor":
       name: "Sensibo"
       class: "SensiboSensor"
@@ -48,6 +51,11 @@ module.exports = (env) ->
         configDef: deviceConfigDef.SensiboControl,
         createCallback: (config, lastState) =>
           return new SensiboControl config, @, lastState
+      })
+      @framework.deviceManager.registerDeviceClass("SensiboFanControl", {
+        configDef: deviceConfigDef.SensiboFanControl,
+        createCallback: (config, lastState) =>
+          return new SensiboFanControl config, @, lastState
       })
 
       @framework.deviceManager.on('discover', (eventData) =>
@@ -153,6 +161,28 @@ module.exports = (env) ->
         @base.scheduleUpdate @_requestUpdate, @interval
 
     getHumidity: -> Promise.resolve @_humidity
+
+  class SensiboFanControl extends env.devices.ButtonsDevice
+
+    constructor: (@config, @plugin, lastState) ->
+      @id = @config.id
+      @name = @config.name
+      @base = commons.base @, @config.class
+      for b in @config.buttons
+        b.text = b.id unless b.text?
+      super @config
+
+    destroy: () ->
+      super()
+
+    buttonPressed: (buttonId) ->
+      for b in @config.buttons
+        if b.id is buttonId
+          @_lastPressedButton = b.id
+          @emit 'button', b.id
+          return Promise.resolve()
+
+      throw new Error("No button with the id #{buttonId} found")
 
   class SensiboControl extends env.devices.PowerSwitch
     attributes:
