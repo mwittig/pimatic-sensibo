@@ -15,7 +15,7 @@
     "HISTORY.md",
     "LICENSE"
   ],
-  "version": "0.9.0-a.3",
+  "version": "0.9.0-a.4",
   "homepage": "https://github.com/mwittig/pimatic-sensibo",
   "keywords": [
     "pimatic",
@@ -31,8 +31,8 @@
   "license": "AGPL-3.0",
   "configSchema": "sensibo-config-schema.coffee",
   "dependencies": {
-    "pimatic-plugin-commons": "^0.9.1",
-    "restler-promise": "git+https://github.com/mwittig/restler-promise.git"
+    "pimatic-plugin-commons": "^0.9.3",
+    "restler-promise": "0.0.5"
   },
   "peerDependencies": {
     "pimatic": ">=0.9.0 <1.0.0"
