@@ -71,7 +71,7 @@ module.exports = (env) ->
                   config = _.cloneDeep
                     class: configTemplate.class
                     id: id
-                    name:  "#{configTemplate.name} #{id}"
+                    name:  "#{configTemplate.name} #{id.substr(1 + id.indexOf '-')}"
                     podUid: podUid
 
                   @framework.deviceManager.discoveredDevice(
@@ -122,8 +122,8 @@ module.exports = (env) ->
       @base.debug "Device Initialization"
       @id = @config.id
       @name = @config.name
-      @serviceUrl = @_createServiceUrl()
-      @base.info @serviceUrl.replace(/apiKey=[^&]+/i, "apiKey=XXX");
+      @serviceUrlGet = @_createServiceUrl()
+      @base.info @serviceUrlGet.replace(/apiKey=[^&]+/i, "apiKey=XXX");
       @options = @plugin.options
       intervalSeconds = (@config.interval or (@plugin.config.interval ? @plugin.config.__proto__.interval))
       @interval = 1000 * @base.normalize intervalSeconds, 10, 86400
@@ -149,12 +149,12 @@ module.exports = (env) ->
       return url.format urlObject
 
     _requestUpdate: ->
-      rest.get(@serviceUrl, @options).then((result) =>
+      rest.get(@serviceUrlGet, @options).then((result) =>
         @base.info "response:", result.data
         data = result.data
         if data.status is 'success' and _.isArray data.result
-          @_setHumidity +data.result[0].humidity
-          @_setTemperature +data.result[0].temperature
+          @_setHumidity data.result[0].humidity
+          @_setTemperature data.result[0].temperature
       ).catch((errorResult) =>
         @base.error "Unable to get status values of device: ", errorResult.error ? errorResult
       ).finally () =>
@@ -170,17 +170,57 @@ module.exports = (env) ->
       @base = commons.base @, @config.class
       for b in @config.buttons
         b.text = b.id unless b.text?
+      @serviceUrlGet = @_createServiceUrl(
+        limit:  1
+        fields: "status,reason,acState,limit=10"
+      )
+      @serviceUrlPost = @_createServiceUrl()
+      @options = @plugin.options
       super @config
 
     destroy: () ->
       super()
 
+    _createServiceUrl: (queryParams) ->
+      urlObject = url.parse @plugin.baseUrl, false, true
+      urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/acStates"
+      urlObject.query =
+        apiKey: "#{@plugin.apiKey}"
+      if queryParams?
+        for own k, v of queryParams
+          urlObject.query[k] = v
+      return url.format urlObject
+
+    _getValues: ->
+      new Promise (resolve, reject) =>
+        rest.get(@serviceUrlGet, @options).then((result) =>
+          @base.info "response:", result.data
+          data = result.data
+          if data.status is 'success' and _.isArray data.result
+            @base.info "data:", data.result
+            acState = data.result[0].acState
+            resolve(acState)
+          else
+            reject new Error "Invalid response status: #{data.status}"
+        ).catch (errorResult) =>
+          reject errorResult.error ? errorResult
+
     buttonPressed: (buttonId) ->
       for b in @config.buttons
         if b.id is buttonId
-          @_lastPressedButton = b.id
-          @emit 'button', b.id
-          return Promise.resolve()
+          return @_getValues().then (acState) =>
+            acState.fanLevel = b.id
+            data =
+              acState: acState
+            rest.postJson(@serviceUrlPost, data, @options).then((result) =>
+              @base.debug "post response:", result.data
+              @_lastPressedButton = b.id
+              @emit 'button', b.id
+              Promise.resolve()
+            ).catch((errorResult) =>
+              @base.error "Unable to change status values of device: " + errorResult.error ? errorResult, errorResult.response || ''
+              Promise.reject(errorResult.error ? errorResult)
+            )
 
       throw new Error("No button with the id #{buttonId} found")
 
@@ -212,9 +252,15 @@ module.exports = (env) ->
       @base.debug "Device Initialization"
       @id = @config.id
       @name = @config.name
-      @serviceUrl = @_createServiceUrl()
-      @base.info @serviceUrl.replace(/apiKey=[^&]+/i, "apiKey=XXX");
+      @serviceUrlGet = @_createServiceUrl(
+        limit:  1
+        fields: "status,reason,acState,limit=10"
+      )
+      @serviceUrlPost = @_createServiceUrl()
+      @base.debug @serviceUrlGet.replace(/apiKey=[^&]+/i, "apiKey=XXX");
       @options = @plugin.options
+      intervalSeconds = (@config.interval or (@plugin.config.interval ? @plugin.config.__proto__.interval))
+      @interval = 1000 * @base.normalize intervalSeconds, 10, 86400
       @_fanLevel = lastState?.fanLevel?.value or 'low'
       @_mode = lastState?.mode?.value or 'fan'
       @_targetTemperature = lastState?.targetTemperature?.value or 20.0
@@ -225,28 +271,37 @@ module.exports = (env) ->
       @base.cancelUpdate()
       super()
 
-    _createServiceUrl: () ->
+    _createServiceUrl: (queryParams) ->
       urlObject = url.parse @plugin.baseUrl, false, true
       urlObject.pathname = @plugin.addToUrlPath urlObject.pathname, "pods/#{@config.podUid}/acStates"
       urlObject.query =
         apiKey: "#{@plugin.apiKey}"
-        limit:  1
-        fields: "status,reason,acState"
+      if queryParams?
+        for own k, v of queryParams
+          urlObject.query[k] = v
       return url.format urlObject
 
+    _getValues: ->
+      new Promise (resolve, reject) =>
+        rest.get(@serviceUrlGet, @options).then((result) =>
+          @base.debug "response:", result.data
+          data = result.data
+          if data.status is 'success' and _.isArray data.result
+            @base.debug "data:", data.result
+            acState = data.result[0].acState
+            @base.setAttribute "fanLevel", acState.fanLevel
+            @base.setAttribute "mode", acState.mode
+            @base.setAttribute "targetTemperature", acState.targetTemperature
+            @_setState acState.on
+            resolve()
+          else
+            reject new Error "Invalid response status: #{data.status}"
+        ).catch (errorResult) =>
+          reject errorResult.error ? errorResult
+
     _requestUpdate: ->
-      rest.get(@serviceUrl, @options).then((result) =>
-        @base.info "response:", result.data
-        data = result.data
-        if data.status is 'success' and _.isArray data.result
-          @base.info "data:", data.result
-          acState = data.result[0].acState
-          @base.setAttribute "fanLevel", acState.fanLevel
-          @base.setAttribute "mode", acState.mode
-          @base.setAttribute "targetTemperature", acState.targetTemperature
-          @base._setState acState.on
-      ).catch((errorResult) =>
-        @base.error "Unable to get status values of device: " + errorResult.error ? errorResult
+      @_getValues().catch((error) =>
+        @base.error "Unable to get status values of device: " + error
       ).finally () =>
         @base.scheduleUpdate @_requestUpdate, @interval
 
@@ -254,7 +309,21 @@ module.exports = (env) ->
     getMode: -> Promise.resolve @_mode
     getTargetTemperature: -> Promise.resolve @_targetTemperature
     changeStateTo: (newState) ->
-      @base.info "not yet implemented"
+      @_getValues().then =>
+        data =
+          acState:
+            on: newState
+            mode: @_mode
+            fanLevel: @_fanLevel
+            targetTemperature: @_targetTemperature
+        rest.postJson(@serviceUrlPost, data, @options).then((result) =>
+          @base.debug "post response:", result.data
+          @_setState newState
+          Promise.resolve()
+        ).catch((errorResult) =>
+          @base.error "Unable to change status values of device: " + errorResult.error ? errorResult, errorResult.response || ''
+          Promise.reject(errorResult.error ? errorResult)
+        )
 
   # ###Finally
   # Create a instance of my plugin

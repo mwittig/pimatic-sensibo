@@ -11,7 +11,7 @@ module.exports = {
   }
   SensiboFanControl: {
     title: "Sensibo Fan Control"
-    description: "Controls the fan mode"
+    description: "Sensibo Control for the fan mode"
     type: "object"
     properties:
       podUid:
@@ -20,6 +20,8 @@ module.exports = {
       buttons:
         description: "The fan level control buttons"
         type: "array"
+        options:
+          hidden: yes
         default: [
           {
             id: "low"

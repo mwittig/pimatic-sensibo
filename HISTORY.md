@@ -1,4 +1,4 @@
 # Release History
 
-* 201606xx, V0.9.0-a.0
-    * First test release
+* 2016xxxx, V0.9.0
+    * First release
